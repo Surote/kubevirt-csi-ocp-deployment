@@ -1,0 +1,22 @@
+# Step 2 on the guest: oc --context ocp-vm-sno apply -k tenant/controller
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- https://github.com/kubevirt/csi-driver//deploy/controller-tenant/base?ref=b7b6b9aa20e1555baccfb6efbda5092edbc6db02
+images:
+- name: quay.io/kubevirt/kubevirt-csi-driver
+  digest: sha256:44c98353e6137455d6a393ad13e04f60e10ee49fdcd00cf078f7f7084714f409
+patches:
+# The underlay runs DeclarativeHotplugVolumes, not HotplugVolumes.
+- target: {kind: Deployment, name: kubevirt-csi-controller}
+  patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --enable-vmi-hotplug-fallback=false
+# Upstream reuses this name in tenant/base with a different subject, so the
+# last apply would win. Rename it so both bindings exist side by side.
+- target: {kind: ClusterRoleBinding, name: csi-snapshotter-role}
+  patch: |-
+    - op: replace
+      path: /metadata/name
+      value: kubevirt-csi-controller-snapshotter

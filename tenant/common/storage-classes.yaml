@@ -1,0 +1,22 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: kubevirt
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "false"
+provisioner: csi.kubevirt.io
+parameters:
+  infraStorageClassName: lvms-vg1
+  bus: scsi
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+---
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: kubevirt-csi-snapclass
+driver: csi.kubevirt.io
+deletionPolicy: Delete
+parameters:
+  infraSnapshotClassName: lvms-vg1

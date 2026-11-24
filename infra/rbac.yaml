@@ -1,0 +1,76 @@
+# Apply on the underlay: oc --context ocp-sno apply -f infra/rbac.yaml
+# Identity the guest's CSI controller uses to create DataVolumes in swongpai-virt
+# and hot-plug them into the guest node VMs. Mirrors upstream
+# deploy/infra-cluster-service-account.yaml, scoped to swongpai-virt.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubevirt-csi
+  namespace: swongpai-virt
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kubevirt-csi-token
+  namespace: swongpai-virt
+  annotations:
+    kubernetes.io/service-account.name: kubevirt-csi
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kubevirt-csi
+  namespace: swongpai-virt
+rules:
+- apiGroups: ["cdi.kubevirt.io"]
+  resources: ["datavolumes"]
+  verbs: ["get", "create", "delete"]
+- apiGroups: ["kubevirt.io"]
+  resources: ["virtualmachineinstances", "virtualmachines"]
+  verbs: ["list", "get"]
+- apiGroups: ["subresources.kubevirt.io"]
+  resources: ["virtualmachines/addvolume", "virtualmachines/removevolume", "virtualmachineinstances/removevolume"]
+  verbs: ["update"]
+- apiGroups: ["snapshot.storage.k8s.io"]
+  resources: ["volumesnapshots"]
+  verbs: ["get", "create", "delete"]
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kubevirt-csi
+  namespace: swongpai-virt
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kubevirt-csi
+subjects:
+- kind: ServiceAccount
+  name: kubevirt-csi
+  namespace: swongpai-virt
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubevirt-csi-cluster
+rules:
+- apiGroups: [""]
+  resources: ["persistentvolumes"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubevirt-csi-cluster-swongpai-virt
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubevirt-csi-cluster
+subjects:
+- kind: ServiceAccount
+  name: kubevirt-csi
+  namespace: swongpai-virt

@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>KubeVirt CSI: ocp-vm-sno on ocp-sno</title>
+<style>
+  :root {
+    --guest: #2563eb; --guest-bg: #eff6ff;
+    --infra: #059669; --infra-bg: #ecfdf5;
+    --ns-bg: #f0fdf4; --cfg: #7c3aed; --cfg-bg: #f5f3ff;
+    --data: #ea580c; --ctrl: #2563eb; --ink: #1f2937; --mute: #6b7280; --line: #d1d5db;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: #fafafa; }
+  header, section { max-width: 1240px; margin: 0 auto; padding: 0 20px; }
+  header { padding-top: 24px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 32px 0 8px; }
+  p.lead { color: var(--mute); margin: 0 0 12px; }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px; color: var(--mute); margin: 8px 0; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 14px; height: 14px; border-radius: 3px; border: 2px solid; display: inline-block; }
+  .ln { width: 26px; height: 0; border-top: 3px solid; display: inline-block; }
+  svg { width: 100%; height: auto; display: block; }
+  svg text { font-family: inherit; }
+  .box rect.b { stroke-width: 1.5; rx: 6; }
+  .box.zone > rect.b { stroke-width: 2.5; }
+  .box .t { font-weight: 600; font-size: 12.5px; }
+  .box .l { font-size: 11px; fill: #374151; }
+  .box .l.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 10.5px; }
+  .box.zone .t { font-size: 15px; }
+  .badge circle { fill: #111827; }
+  .badge text { fill: #fff; font-size: 11px; font-weight: 700; text-anchor: middle; dominant-baseline: central; }
+  .arrow { fill: none; stroke-width: 2.5; }
+  .arrow.ctrl { stroke: var(--ctrl); stroke-dasharray: 7 4; }
+  .arrow.data { stroke: var(--data); stroke-width: 4; }
+  .arrow.runs { stroke: #9ca3af; stroke-dasharray: 2 4; stroke-width: 2; }
+  .alabel { font-size: 11px; font-weight: 600; paint-order: stroke; stroke: #fff; stroke-width: 4px; }
+  /* step highlight */
+  svg.focus .box:not(.zone), svg.focus .arrow, svg.focus .alabel { opacity: .18; transition: opacity .15s; }
+  svg.focus .hl, svg.focus .hl * { opacity: 1 !important; }
+  svg.focus .box.hl rect.b { stroke-width: 3.5; filter: drop-shadow(0 0 6px rgba(234,88,12,.55)); }
+  .steps { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; margin-top: 10px; }
+  .step { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: #fff; cursor: pointer; font-size: 13px; }
+  .step:hover, .step.on { border-color: var(--data); background: #fff7ed; }
+  .step b { display: inline-block; min-width: 22px; height: 22px; border-radius: 11px; background: #111827; color: #fff; text-align: center; font-size: 12px; line-height: 22px; margin-right: 6px; }
+  .step .who { color: var(--mute); font-size: 12px; display: block; margin-top: 2px; }
+  table { border-collapse: collapse; width: 100%; background: #fff; font-size: 13px; }
+  th, td { border: 1px solid var(--line); padding: 7px 9px; text-align: left; vertical-align: top; }
+  th { background: #f3f4f6; }
+  td code, li code, p code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; background: #f3f4f6; padding: 1px 4px; border-radius: 4px; }
+  tr.g td:first-child { border-left: 4px solid var(--guest); }
+  tr.u td:first-child { border-left: 4px solid var(--infra); }
+  .hint { font-size: 12px; color: var(--mute); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .two { grid-template-columns: 1fr; } }
+  footer { max-width: 1240px; margin: 32px auto; padding: 0 20px; color: var(--mute); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>KubeVirt CSI: guest PVCs on the underlay's <code>lvms-vg1</code></h1>
+  <p class="lead">Guest cluster <b>ocp-vm-sno</b> (OCP 5.0.1, nodes are VMs) asks the underlay <b>ocp-sno</b> (OCP 4.22 SNO, OpenShift Virtualization 4.22) for disks. Each guest PVC becomes a DataVolume in <code>swongpai-virt</code>, hot-plugged into the guest node VM that runs the pod.</p>
+</header>
+
+<section>
+  <h2>1. Components and the path of one volume</h2>
+  <div class="legend">
+    <span><i class="sw" style="border-color:var(--guest);background:var(--guest-bg)"></i>guest cluster ocp-vm-sno</span>
+    <span><i class="sw" style="border-color:var(--infra);background:var(--infra-bg)"></i>underlay cluster ocp-sno</span>
+    <span><i class="sw" style="border-color:var(--cfg);background:var(--cfg-bg)"></i>config you create</span>
+    <span><i class="ln" style="border-color:var(--ctrl);border-top-style:dashed"></i>control path (API calls)</span>
+    <span><i class="ln" style="border-color:var(--data)"></i>data path (disk I/O)</span>
+    <span><i class="ln" style="border-color:#9ca3af;border-top-style:dotted"></i>guest node runs as this VM</span>
+  </div>
+  <div class="card">
+    <svg id="main" viewBox="0 0 1200 910" role="img" aria-label="KubeVirt CSI component diagram"></svg>
+  </div>
+  <p class="hint">Click a step to highlight the parts it touches. Click it again to clear.</p>
+  <div class="steps" id="steps"></div>
+</section>
+
+<section>
+  <h2>2. How the disk moves when the pod moves</h2>
+  <p class="lead">The data never copies. The same thin LV on the underlay is unplugged from one guest VM and plugged into another.</p>
+  <div class="card"><svg id="move" viewBox="0 0 1200 300" role="img" aria-label="Disk moves between guest node VMs"></svg></div>
+</section>
+
+<section>
+  <h2>3. Other lifecycle operations</h2>
+  <table>
+    <tr><th>Guest action</th><th>Guest sidecar → driver call</th><th>What happens on the underlay</th></tr>
+    <tr><td>Create PVC</td><td>csi-provisioner → <code>CreateVolume</code></td><td>Blank DataVolume <code>pvc-&lt;uid&gt;</code> on <code>lvms-vg1</code>, labelled <code>csi-driver/cluster=ocp-vm-sno</code>. The PVC stays WaitForFirstConsumer until the hotplug pod uses it.</td></tr>
+    <tr><td>Pod starts</td><td>csi-attacher → <code>ControllerPublishVolume</code>, then kubelet → <code>NodeStage</code>/<code>NodePublish</code></td><td><code>virtualmachines/&lt;vm&gt;/addvolume</code>. Hotplug pod, SCSI disk hot-attached to QEMU.</td></tr>
+    <tr><td>Pod stops</td><td>kubelet → <code>NodeUnpublish</code>/<code>NodeUnstage</code>, csi-attacher → <code>ControllerUnpublishVolume</code></td><td><code>virtualmachines/&lt;vm&gt;/removevolume</code>. The disk is detached and the hotplug pod is deleted. The LV keeps its data.</td></tr>
+    <tr><td>Expand PVC</td><td>csi-resizer → <code>ControllerExpandVolume</code>, then <code>NodeExpandVolume</code></td><td>The underlay PVC grows (TopoLVM <code>allowVolumeExpansion</code>). The VM sees the new size (feature gate <code>ExpandDisks</code> is on), and the guest grows the filesystem.</td></tr>
+    <tr><td>VolumeSnapshot</td><td>csi-snapshotter → <code>CreateSnapshot</code></td><td>Underlay VolumeSnapshot with class <code>lvms-vg1</code> (from <code>infraSnapshotClassName</code> and <code>storageSnapshotMapping</code>).</td></tr>
+    <tr><td>Clone / restore</td><td>csi-provisioner → <code>CreateVolume</code> with a source</td><td>DataVolume with <code>dataSourceRef</code> to the source PVC or snapshot. CDI clones it.</td></tr>
+    <tr><td>Delete PVC</td><td>csi-provisioner → <code>DeleteVolume</code></td><td>The DataVolume and PVC are deleted, and TopoLVM frees the thin LV.</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>4. What you configure</h2>
+  <table>
+    <tr><th style="width:18%">Where</th><th style="width:30%">Object</th><th>Key settings</th><th style="width:16%">File</th></tr>
+    <tr class="u"><td>ocp-sno<br><small>ns swongpai-virt</small></td><td>ServiceAccount <code>kubevirt-csi</code> + token Secret <code>kubevirt-csi-token</code></td><td>The identity the guest controller uses. Its <code>ca.crt</code> verifies the underlay API certificate (<code>kube-apiserver-lb-signer</code>).</td><td><code>infra/rbac.yaml</code></td></tr>
+    <tr class="u"><td>ocp-sno<br><small>ns swongpai-virt</small></td><td>Role + RoleBinding <code>kubevirt-csi</code></td><td><code>datavolumes</code> get/create/delete. <code>virtualmachines</code>, <code>virtualmachineinstances</code> get/list. <code>virtualmachines/addvolume</code>, <code>removevolume</code>, <code>virtualmachineinstances/removevolume</code> update. <code>volumesnapshots</code> get/create/delete. <code>persistentvolumeclaims</code> get/patch.</td><td><code>infra/rbac.yaml</code></td></tr>
+    <tr class="u"><td>ocp-sno<br><small>cluster</small></td><td>ClusterRole/Binding <code>kubevirt-csi-cluster</code></td><td><code>persistentvolumes</code> get</td><td><code>infra/rbac.yaml</code></td></tr>
+    <tr class="u"><td>ocp-sno<br><small>already there</small></td><td>HyperConverged, LVMS <code>lvms-vg1</code>, VolumeSnapshotClass <code>lvms-vg1</code></td><td>Feature gates <code>DeclarativeHotplugVolumes</code> and <code>ExpandDisks</code> are on. No change needed.</td><td>none</td></tr>
+    <tr class="g"><td>ocp-vm-sno<br><small>every node</small></td><td>Node annotations</td><td><code>csi.kubevirt.io/infra-vm-name=&lt;vm&gt;</code>, <code>csi.kubevirt.io/infra-vm-namespace=swongpai-virt</code>. Matched by systemUUID = VMI <code>firmware.uuid</code>.</td><td><code>bin/install.sh</code> step 2</td></tr>
+    <tr class="g"><td>ocp-vm-sno<br><small>ns kubevirt-csi-driver</small></td><td>Namespace</td><td>Pod Security <code>privileged</code> (the node plugin needs <code>/dev</code>, <code>/var/lib/kubelet</code> and mount propagation)</td><td><code>tenant/common/namespace.yaml</code></td></tr>
+    <tr class="g"><td>ocp-vm-sno<br><small>ns kubevirt-csi-driver</small></td><td>Secret <code>infra-cluster-credentials</code></td><td>Key <code>kubeconfig</code> with server <code>https://api.ocpcluster.yumtech.info:6443</code>, the SA token and the SA CA</td><td><code>bin/install.sh</code> step 3</td></tr>
+    <tr class="g"><td>ocp-vm-sno<br><small>ns kubevirt-csi-driver</small></td><td>ConfigMap <code>driver-config</code></td><td><code>infraClusterNamespace: swongpai-virt</code>, <code>infraClusterLabels: csi-driver/cluster=ocp-vm-sno</code>, <code>infraStorageClassEnforcement</code> with allowList <code>[lvms-vg1]</code> and a snapshot mapping (lowercase keys)</td><td><code>tenant/common/driver-config.yaml</code></td></tr>
+    <tr class="g"><td>ocp-vm-sno<br><small>cluster</small></td><td>CSIDriver <code>csi.kubevirt.io</code></td><td>From upstream, unchanged</td><td><code>tenant/common</code></td></tr>
+    <tr class="g"><td>ocp-vm-sno<br><small>cluster</small></td><td>StorageClass <code>kubevirt</code></td><td><code>provisioner: csi.kubevirt.io</code>, <code>infraStorageClassName: lvms-vg1</code>, <code>bus: scsi</code>, expansion on, not default</td><td><code>tenant/common/storage-classes.yaml</code></td></tr>
+    <tr class="g"><td>ocp-vm-sno<br><small>cluster</small></td><td>VolumeSnapshotClass <code>kubevirt-csi-snapclass</code></td><td><code>driver: csi.kubevirt.io</code>, <code>infraSnapshotClassName: lvms-vg1</code></td><td><code>tenant/common/storage-classes.yaml</code></td></tr>
+    <tr class="g"><td>ocp-vm-sno<br><small>ns kubevirt-csi-driver</small></td><td>DaemonSet <code>kubevirt-csi-node</code></td><td>Image pinned by digest. <code>--run-node-service=true</code>. One pod per guest node, including the masters.</td><td><code>tenant/common</code></td></tr>
+    <tr class="g"><td>ocp-vm-sno<br><small>ns kubevirt-csi-driver</small></td><td>Deployment <code>kubevirt-csi-controller</code></td><td><code>--run-controller-service=true</code>, <code>--enable-vmi-hotplug-fallback=false</code> (required with DeclarativeHotplugVolumes). Snapshotter binding renamed to <code>kubevirt-csi-controller-snapshotter</code>.</td><td><code>tenant/controller</code></td></tr>
+    <tr><td>Network</td><td>Guest nodes → underlay API</td><td>172.16.25.0/24 must reach 172.16.4.101:6443. Not yet proven, so <code>install.sh</code> step 0 checks it.</td><td><code>bin/install.sh</code> step 0</td></tr>
+  </table>
+</section>
+
+<footer>Measured from both clusters on 2026-11-23 to 24. Driver: kubevirt/csi-driver at commit b7b6b9aa, image quay.io/kubevirt/kubevirt-csi-driver@sha256:44c98353… Plan and scripts: <code>PLAN.md</code>, <code>bin/install.sh</code>, <code>bin/verify.sh</code>.</footer>
+
+<script>
+const NS = "http://www.w3.org/2000/svg";
+const C = {
+  guest: ["#2563eb", "#eff6ff"], node: ["#3b82f6", "#ffffff"], infra: ["#059669", "#ecfdf5"],
+  ns: ["#10b981", "#f0fdf4"], comp: ["#6b7280", "#ffffff"], cfg: ["#7c3aed", "#f5f3ff"],
+  disk: ["#ea580c", "#fff7ed"], drv: ["#1d4ed8", "#dbeafe"], plat: ["#047857", "#ffffff"],
+};
+
+// One row per box: id, x, y, w, h, style, title, lines, steps it belongs to, badge
+const BOXES = [
+  ["gz", 20, 20, 1160, 345, "guest", "Guest cluster  ocp-vm-sno  (OCP 5.0.1, 3 masters + 3 workers, platform None)", [], [], 0, true],
+  ["m0", 40, 52, 390, 300, "node", "Node master-0.lab.rhdemo.local  (a VM)", [], [], 0],
+  ["ctl", 55, 78, 360, 168, "comp", "Pod kubevirt-csi-controller  (Deployment)", [], [1,2,4], 0],
+  ["prov", 70, 104, 160, 26, "comp", "csi-provisioner", [], [1], 1],
+  ["att", 240, 104, 160, 26, "comp", "csi-attacher", [], [4], 4],
+  ["res", 70, 136, 160, 26, "comp", "csi-resizer", [], [], 0],
+  ["snap", 240, 136, 160, 26, "comp", "csi-snapshotter", [], [], 0],
+  ["cdrv", 70, 170, 330, 66, "drv", "kubevirt-csi-driver  (controller mode)", ["--run-controller-service=true", "--enable-vmi-hotplug-fallback=false", "--infra-cluster-namespace=swongpai-virt"], [2,4], 2, false, true],
+  ["sec", 55, 252, 360, 44, "cfg", "Secret infra-cluster-credentials", ["kubeconfig → api.ocpcluster.yumtech.info:6443, SA token"], [2], 0],
+  ["cm", 55, 300, 360, 44, "cfg", "ConfigMap driver-config", ["swongpai-virt · cluster=ocp-vm-sno · allowList [lvms-vg1]"], [2], 0],
+  ["sc", 450, 52, 280, 62, "cfg", "StorageClass kubevirt", ["provisioner: csi.kubevirt.io", "infraStorageClassName: lvms-vg1   bus: scsi"], [1], 0],
+  ["csid", 450, 122, 280, 40, "cfg", "CSIDriver csi.kubevirt.io", ["+ VolumeSnapshotClass kubevirt-csi-snapclass"], [], 0],
+  ["pvc", 450, 170, 280, 82, "comp", "PVC data  →  PV", ["storageClassName: kubevirt", "PV .spec.csi.volumeHandle = pvc-<uid>", "  = name of the DataVolume on the underlay"], [1], 1],
+  ["note", 450, 262, 280, 80, "comp", "Why node annotations?", ["Guest nodes have no providerID.", "The driver maps node → VM only from", "providerID kubevirt:// or annotations.", "Names differ: worker-0.lab… vs worker-0"], [4], 0],
+  ["w0", 750, 52, 410, 300, "node", "Node worker-0.lab.rhdemo.local  (a VM)", [], [], 0],
+  ["ann", 765, 78, 380, 53, "cfg", "Node annotations", ["csi.kubevirt.io/infra-vm-name=worker-0", "csi.kubevirt.io/infra-vm-namespace=swongpai-virt"], [4], 4, false, true],
+  ["npod", 765, 136, 195, 136, "comp", "kubevirt-csi-node pod", [], [8], 8],
+  ["ndrv", 775, 160, 175, 54, "drv", "csi-driver (node mode)", ["find disk by serial,", "mkfs, mount, bind"], [8], 0],
+  ["reg", 775, 218, 175, 24, "comp", "node-driver-registrar", [], [], 0],
+  ["lp", 775, 245, 175, 22, "comp", "livenessprobe", [], [], 0],
+  ["app", 970, 136, 175, 136, "comp", "App pod", ["volumeMounts: /data", "(Block PVC: volumeDevices)", "", "writes files as usual"], [8,9], 9],
+  ["gdisk", 765, 282, 380, 56, "disk", "/dev/sdb  inside the guest", ["virtio-scsi disk, serial = DataVolume UID", "kubelet → NodeStage (ext4) → NodePublish → /data"], [7,8,9], 8, false, true],
+
+  ["uz", 20, 395, 1160, 500, "infra", "Underlay cluster  ocp-sno  (OCP 4.22 SNO, node master, OpenShift Virtualization 4.22.16)", [], [], 0, true],
+  ["ns", 40, 425, 1120, 250, "ns", "Namespace swongpai-virt", [], [], 0],
+  ["vl0", 60, 455, 330, 100, "comp", "Pod virt-launcher-master-0", ["QEMU/libvirt: VM master-0", "(guest node master-0)"], [], 0],
+  ["vm", 420, 455, 310, 100, "comp", "VirtualMachine worker-0", ["spec.template.spec.volumes += pvc-<uid>", "  persistentVolumeClaim.hotpluggable: true", "added by addvolume (declarative hotplug)"], [5,6], 5, false, true],
+  ["vl1", 760, 455, 380, 120, "comp", "Pod virt-launcher-worker-0", ["QEMU/libvirt: VM worker-0 (guest node worker-0)"], [7], 7],
+  ["hdisk", 780, 505, 340, 56, "disk", "hot-plugged SCSI disk", ["serial = DV UID, bus scsi", "libvirt attach-device into running QEMU"], [7,9], 0, false, true],
+  ["rbac", 60, 570, 330, 95, "cfg", "SA kubevirt-csi + token Secret + Role", ["datavolumes: get create delete", "virtualmachines/addvolume, removevolume: update", "vm, vmi: get list   pvc: get patch", "volumesnapshots: get create delete"], [2], 0, false, true],
+  ["dv", 420, 570, 310, 95, "comp", "DataVolume pvc-<uid>  →  PVC pvc-<uid>", ["source: blank, storageClassName: lvms-vg1", "Block, RWO (from StorageProfile)", "label csi-driver/cluster=ocp-vm-sno", "binds when the hotplug pod mounts it (WFFC)"], [3,6,9], 3, false, true],
+  ["hp", 760, 590, 380, 75, "comp", "Pod hp-volume-xxxxx  (hotplug attachment pod)", ["mounts PVC pvc-<uid> as a block device", "virt-handler passes it into virt-launcher"], [6,9], 6],
+  ["api", 40, 700, 200, 75, "plat", "kube-apiserver", ["api.ocpcluster.yumtech.info:6443", "172.16.4.101"], [2,3,5], 2],
+  ["vapi", 255, 700, 150, 75, "plat", "virt-api", ["serves", "addvolume / removevolume"], [5], 5],
+  ["vctl", 420, 700, 150, 75, "plat", "virt-controller", ["syncs VM → VMI,", "creates hotplug pod"], [6], 6],
+  ["vh", 585, 700, 140, 75, "plat", "virt-handler", ["on node master,", "wires disk into QEMU"], [7], 7],
+  ["cdi", 760, 700, 150, 75, "plat", "CDI", ["DataVolume →", "PVC (blank)"], [3], 3],
+  ["topo", 925, 700, 215, 75, "plat", "LVMS / TopoLVM  (topolvm.io)", ["provisions an LV per PVC", "StorageClass lvms-vg1"], [3,6], 0],
+  ["pool", 760, 795, 380, 80, "disk", "VG vg1 → thin-pool-1 on /dev/sda", ["one thin LV per guest PVC", "shared with the other VMs on this SNO", "overprovisionRatio 10"], [6,9], 0],
+  ["net", 40, 795, 685, 80, "comp", "Network and trust", ["Guest nodes 172.16.25.0/24 → underlay API 172.16.4.101:6443 (HTTPS). Not proven yet: install.sh step 0.", "The controller only reaches swongpai-virt. The allowList blocks every StorageClass except lvms-vg1.", "Underlay feature gates: DeclarativeHotplugVolumes, ExpandDisks (both on)."], [2], 0],
+];
+
+// Arrows: path, style, steps, label, label x/y
+const ARROWS = [
+  ["M 450 205 L 417 205", "ctrl", [1], "①", 427, 198],
+  ["M 70 215 L 30 215 L 30 737 L 38 737", "ctrl", [2], "② CreateVolume over HTTPS 6443", 34, 690, -90],
+  ["M 200 700 L 200 685 L 405 685 L 405 617 L 418 617", "ctrl", [3], "③ create DataVolume", 250, 680],
+  ["M 405 640 L 405 505 L 418 505", "ctrl", [5], "⑤ addvolume", 340, 500],
+  ["M 835 700 L 835 690 L 745 690 L 745 640 L 732 640", "ctrl", [3], "", 0, 0],
+  ["M 495 700 L 495 665", "ctrl", [6], "", 0, 0],
+  ["M 570 700 L 570 690 L 750 690 L 750 628 L 758 628", "ctrl", [6], "", 0, 0],
+  ["M 175 352 L 175 453", "runs", [], "runs as", 182, 384],
+  ["M 900 352 L 900 453", "runs", [], "runs as", 830, 384],
+  ["M 1050 272 L 1050 282", "data", [9], "", 0, 0],
+  ["M 1120 338 L 1120 503", "data", [7,9], "⑦ disk appears in guest", 965, 384],
+  ["M 950 561 L 950 588", "data", [7,9], "", 0, 0],
+  ["M 760 640 L 732 640", "data", [6,9], "", 0, 0],
+  ["M 600 665 L 600 682 L 742 682 L 742 835 L 758 835", "data", [6,9], "⑨ I/O lands in thin LV", 560, 790],
+];
+
+const STEPS = [
+  [1, "You create a PVC with storageClassName kubevirt.", "guest: csi-provisioner watches it and calls the driver"],
+  [2, "The controller calls the underlay API with the kubeconfig in infra-cluster-credentials.", "guest csi-driver → ocp-sno kube-apiserver, as SA kubevirt-csi"],
+  [3, "The driver creates a blank DataVolume pvc-<uid> in swongpai-virt on lvms-vg1. CDI makes the PVC.", "underlay: CDI, LVMS. The guest PV's volumeHandle is the DV name"],
+  [4, "The pod is scheduled to worker-0. csi-attacher calls ControllerPublish. The driver reads the node annotation to find VM swongpai-virt/worker-0.", "guest: csi-attacher, node annotations"],
+  [5, "The driver calls virtualmachines/worker-0/addvolume. The DV is added to the VM spec as a hot-pluggable volume.", "underlay: virt-api, VirtualMachine worker-0"],
+  [6, "virt-controller starts a hotplug pod that mounts the PVC. The WFFC PVC binds, and TopoLVM carves a thin LV.", "underlay: virt-controller, hp-volume pod, TopoLVM"],
+  [7, "virt-handler hands the block device to virt-launcher, and libvirt hot-attaches it to QEMU as a SCSI disk with serial = DV UID.", "underlay: virt-handler, virt-launcher-worker-0"],
+  [8, "Inside worker-0 the disk appears as /dev/sdb. kubevirt-csi-node finds it by serial, formats it, mounts it, and bind-mounts it into the pod.", "guest: kubevirt-csi-node DaemonSet, kubelet"],
+  [9, "App writes go guest filesystem → virtio-scsi → QEMU → hotplug PVC → thin LV on /dev/sda.", "data path, orange arrows"],
+];
+
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function defs(svg) {
+  const d = el("defs", {}, svg);
+  for (const [id, col] of [["a-ctrl", "#2563eb"], ["a-data", "#ea580c"], ["a-runs", "#9ca3af"]]) {
+    const m = el("marker", { id, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 6, markerHeight: 6, orient: "auto-start-reverse" }, d);
+    el("path", { d: "M0,0 L10,5 L0,10 z", fill: col }, m);
+  }
+}
+function box(svg, [id, x, y, w, h, style, title, lines, steps, badge, zone, mono]) {
+  const g = el("g", { class: "box" + (zone ? " zone" : ""), "data-steps": steps.join(" "), id }, svg);
+  const [stroke, fill] = C[style];
+  el("rect", { class: "b", x, y, width: w, height: h, fill, stroke }, g);
+  const t = el("text", { class: "t", x: x + 8, y: y + 17, fill: zone ? stroke : "#111827" }, g);
+  t.textContent = title;
+  lines.forEach((ln, i) => {
+    const s = el("text", { class: "l" + (mono ? " mono" : ""), x: x + 8, y: y + 33 + i * 14 }, g);
+    s.textContent = ln;
+  });
+  if (badge) {
+    const b = el("g", { class: "badge" }, g);
+    el("circle", { cx: x + w - 12, cy: y + 12, r: 10 }, b);
+    el("text", { x: x + w - 12, y: y + 12.5 }, b).textContent = badge;
+  }
+}
+function arrow(svg, [d, kind, steps, label, lx, ly, rot]) {
+  el("path", { d, class: "arrow " + kind, "marker-end": `url(#a-${kind})`, "data-steps": steps.join(" ") }, svg);
+  if (label) {
+    const t = el("text", { class: "alabel", x: lx, y: ly, fill: kind === "data" ? "#c2410c" : kind === "runs" ? "#6b7280" : "#1d4ed8", "data-steps": steps.join(" ") }, svg);
+    if (rot) t.setAttribute("transform", `rotate(${rot} ${lx} ${ly})`);
+    t.textContent = label;
+  }
+}
+
+const main = document.getElementById("main");
+defs(main);
+BOXES.forEach(b => box(main, b));
+ARROWS.forEach(a => arrow(main, a));
+
+const stepsDiv = document.getElementById("steps");
+let active = 0;
+function focus(n) {
+  active = active === n ? 0 : n;
+  main.classList.toggle("focus", active !== 0);
+  main.querySelectorAll("[data-steps]").forEach(e => {
+    const on = active && e.getAttribute("data-steps").split(" ").includes(String(active));
+    e.classList.toggle("hl", !!on);
+  });
+  stepsDiv.querySelectorAll(".step").forEach(s => s.classList.toggle("on", +s.dataset.n === active));
+}
+STEPS.forEach(([n, what, who]) => {
+  const d = document.createElement("div");
+  d.className = "step"; d.dataset.n = n;
+  const b = document.createElement("b"); b.textContent = n;
+  const w = document.createElement("span"); w.className = "who"; w.textContent = who;
+  d.append(b, what, w);
+  d.onclick = () => focus(n);
+  stepsDiv.appendChild(d);
+});
+
+// Section 2: disk moves from worker-0 to worker-1
+const mv = document.getElementById("move");
+defs(mv);
+const FRAMES = [
+  ["A. Pod runs on worker-0", 20, "worker-0", "attached", "LV pvc-abc  (data: v1)"],
+  ["B. Pod deleted / rescheduled", 420, "worker-0", "detaching", "LV pvc-abc  (data: v1, kept)"],
+  ["C. Pod starts on worker-1", 820, "worker-1", "attached", "LV pvc-abc  (same data)"],
+];
+FRAMES.forEach(([title, x, vm, state, lv]) => {
+  el("text", { x: x + 4, y: 20, "font-weight": 700, "font-size": 13 }, mv).textContent = title;
+  box(mv, ["", x, 32, 360, 70, "guest", `guest node ${vm}.lab.rhdemo.local`, [state === "detaching" ? "kubelet: NodeUnpublish + NodeUnstage (umount)" : `/dev/sdb mounted at /data in the app pod`], [], 0]);
+  box(mv, ["", x, 132, 360, 70, "ns", `VM ${vm} (virt-launcher)`, [state === "detaching" ? "removevolume → disk unplugged, hotplug pod deleted" : "addvolume → hotplug pod → SCSI disk attached"], [], 0]);
+  box(mv, ["", x, 222, 360, 60, "disk", `PVC/DV pvc-abc on lvms-vg1`, [lv], [], 0]);
+  arrow(mv, [`M ${x + 180} 102 L ${x + 180} 130`, state === "detaching" ? "ctrl" : "data", [], "", 0, 0]);
+  arrow(mv, [`M ${x + 180} 202 L ${x + 180} 220`, state === "detaching" ? "ctrl" : "data", [], "", 0, 0]);
+});
+arrow(mv, ["M 384 165 L 416 165", "ctrl", [], "", 0, 0]);
+arrow(mv, ["M 784 165 L 816 165", "ctrl", [], "", 0, 0]);
+</script>
+</body>
+</html>
