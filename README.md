@@ -6,8 +6,17 @@ This repo connects a guest OpenShift cluster, whose nodes are OpenShift Virtuali
 
 For the full diagram with clickable steps, open [`kubevirt-csi-diagram.html`](kubevirt-csi-diagram.html) in a browser. For the design decisions and the measured state of both clusters, read [`PLAN.md`](PLAN.md).
 
+## Support status
+
 > [!WARNING]
-> Red Hat supports the KubeVirt CSI driver only inside Hosted Control Planes on KubeVirt. On a standalone cluster, such as one installed by the Assisted Installer, this setup uses the upstream community driver and has no Red Hat support.
+> As of 2026-11-24, Red Hat supports the KubeVirt CSI driver in one way only. You deploy the guest cluster as a hosted cluster with hosted control planes (HCP) on OpenShift Virtualization. In that setup, HCP installs and manages the driver for you.
+>
+> This repo deploys the upstream community driver on a standalone guest cluster, which the Assisted Installer installed. Red Hat does not support this setup. Use it for labs and evaluation, not production.
+
+For a supported setup, create the guest cluster with `hcp create cluster kubevirt`. Map the underlay StorageClass with `--infra-storage-class-mapping` and the VolumeSnapshotClass with `--infra-volumesnapshot-class-mapping`. Red Hat's HCP documentation expects an underlay StorageClass that supports `ReadWriteMany`, which keeps the guest node VMs live-migratable. `lvms-vg1` supports `ReadWriteOnce` only.
+
+- [Managing hosted control planes on OpenShift Virtualization](https://docs.redhat.com/en/documentation/openshift_container_platform/4.18/html/hosted_control_planes/managing-hosted-control-planes#managing-hosted-control-planes-on-openshift-virtualization) (Red Hat documentation, KubeVirt CSI section)
+- [HyperShift storage overview for KubeVirt](https://hypershift.pages.dev/how-to/kubevirt/configuring-storage/) (upstream documentation)
 
 ## Prerequisites
 
